@@ -96,3 +96,4 @@ ENV/
 .utagger-test-output.txt
 .utagger-live-check.txt
 .scratch/
+/data
