@@ -18,7 +18,7 @@ This is an early working pipeline:
 <ruby>역사<rp>(</rp><rt>歷史</rt><rp>)</rp></ruby>
 ```
 
-The current implementation processes individual text nodes. That is enough for many EPUBs, but a later pass should add paragraph-level offset mapping so words split across inline tags can still be annotated.
+The converter now works at paragraph-like block scope where possible, so words split across inline tags can still be annotated. It falls back to smaller text-node conversion outside normal reading blocks.
 
 ## Setup
 
@@ -71,16 +71,18 @@ Optional Hanja level filtering:
 python -m h2h_converter input.epub output.epub --hanja-levels "0 1 2 3 4 5"
 ```
 
+By default, malformed spine documents that cannot be parsed as XHTML/XML are preserved unchanged and reported as warnings. Use `--strict` to stop at the first parse error instead.
+
 ## Pipeline
 
 1. Unpack the EPUB in memory.
 2. Read `META-INF/container.xml`.
 3. Locate the OPF package file.
 4. Resolve spine XHTML files from the manifest.
-5. Parse each XHTML document.
+5. Parse each XHTML document, repairing common named HTML entities such as `&nbsp;`.
 6. Skip unsafe or unsuitable areas such as `script`, `style`, existing `ruby`, `pre`, and `code`.
-7. Convert Hangul text with local UTagger 3 in 병기 mode.
-8. Replace `한글(漢字)` output with `<ruby>` markup.
+7. Convert paragraph-like Hangul text with local UTagger 3 in 병기 mode.
+8. Align `한글(漢字)` output back to the original XHTML text runs and replace the Hangul base with `<ruby>` markup.
 9. Inject a small ruby stylesheet unless `--no-css` is passed.
 10. Repack the EPUB while preserving the required uncompressed `mimetype` entry.
 

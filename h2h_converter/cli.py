@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
 from .epub import convert_epub
 from .utagger import UTaggerHanjaConverter, UTaggerOptions
@@ -33,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Replace the output EPUB if it already exists.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Stop on the first XHTML parse error instead of preserving that file unchanged.",
+    )
     return parser
 
 
@@ -50,13 +56,23 @@ def main(argv: list[str] | None = None) -> int:
             args.output_epub,
             converter,
             add_css=not args.no_css,
+            best_effort=not args.strict,
             overwrite=args.overwrite,
         )
 
     print(
         "Converted "
-        f"{stats.documents} document(s), processed {stats.text_nodes} text node(s), "
+        f"{stats.documents} document(s), processed {stats.text_nodes} text segment(s), "
         f"and added {stats.ruby_nodes} ruby annotation(s)."
     )
-    return 0
+    if stats.skipped_documents:
+        print(
+            f"Preserved {stats.skipped_documents} document(s) unchanged due to warnings.",
+            file=sys.stderr,
+        )
+    for warning in stats.warnings[:5]:
+        print(f"Warning: {warning}", file=sys.stderr)
+    if len(stats.warnings) > 5:
+        print(f"Warning: {len(stats.warnings) - 5} more warning(s) omitted.", file=sys.stderr)
 
+    return 0

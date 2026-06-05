@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from typing import Sequence
 
 from .ruby import has_hangul
 
@@ -92,6 +93,9 @@ class UTaggerHanjaConverter:
 
         raw = str(self._dll.cma_tag_line_BSP(c_int(self._thread), c_wchar_p(text), c_int(3)))
         return _extract_converted_sentence(raw, fallback=text)
+
+    def convert_many(self, texts: Sequence[str]) -> list[str]:
+        return [self.convert(text) for text in texts]
 
     def _write_runtime_config(self, base_config: Path) -> Path:
         if self.options.mode not in {1, 2}:
