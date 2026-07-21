@@ -20,27 +20,59 @@ This is an early working pipeline:
 
 The converter now works at paragraph-like block scope where possible, so words split across inline tags can still be annotated. It falls back to smaller text-node conversion outside normal reading blocks.
 
+## Requirements
+
+- Windows 10/11, 64-bit (UTagger ships as a 64-bit DLL; 32-bit Python cannot load it).
+- CPython 3.10–3.13, 64-bit.
+- About 200 MB of disk space for the UTagger 3 binaries and dictionaries.
+
 ## Setup
 
-Use Python 3.10 or newer. On this machine, the portable Python path is:
+Create a virtual environment and install the package:
 
 ```powershell
-C:\tmp\WinPython\WPy64-3.13.12.0\python\python.exe
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[setup]"
 ```
 
-Install setup dependencies if you want to use `pyutagger` to download UTagger:
+The `setup` extra installs `pyutagger`, which is used only to download UTagger. The converter itself has no runtime dependencies.
+
+### Install UTagger 3 data
 
 ```powershell
-python -m pip install -r requirements.txt
+h2h-convert setup
 ```
 
-Install UTagger 3 data with `pyutagger`:
+This downloads the UTagger 3 binaries and dictionaries into your per-user data
+directory (`%LOCALAPPDATA%\h2h-converter\utagger`) and saves the location to a
+config file (`%APPDATA%\h2h-converter\config.json`). Use `--install-dir DIR` to
+install elsewhere. If a usable install already exists in that directory, `setup`
+reuses it instead of downloading again.
+
+Then verify the whole chain end to end:
+
+```powershell
+h2h-convert doctor
+```
+
+`doctor` checks your Python version and architecture, finds UTagger (telling you
+*which* source supplied the path), loads the DLL, and runs a live conversion.
+It exits with code 0 only when everything works.
+
+You can also install UTagger manually with `pyutagger`:
 
 ```powershell
 python -c "import pyutagger.downloader as d; d.install_utagger('utagger3', r'C:\utagger')"
 ```
 
-You can install UTagger elsewhere. If pyutagger has saved the install path, the converter will find it automatically. Otherwise pass `--utagger3-path`.
+At conversion time the converter looks for UTagger 3 in this order:
+
+1. `--utagger3-path` on the command line
+2. The `UTAGGER3_PATH` environment variable
+3. The h2h-converter config file (written by `h2h-convert setup`)
+4. The path saved by `pyutagger` when it installed UTagger
+5. A `.utagger\v3_*` folder in the current working directory
 
 ## Offline Use
 
@@ -56,22 +88,28 @@ We verified this locally by blocking Python socket creation and converting sampl
 ## Convert An EPUB
 
 ```powershell
-python -m h2h_converter input.epub output.hanja-ruby.epub --overwrite
+h2h-convert run input.epub output.hanja-ruby.epub --overwrite
 ```
+
+(`h2h-convert input.epub output.epub` without `run` still works but is
+deprecated; `python -m h2h_converter ...` is equivalent to `h2h-convert ...`.)
 
 With an explicit UTagger 3 path:
 
 ```powershell
-python -m h2h_converter input.epub output.hanja-ruby.epub --utagger3-path C:\utagger\v3_2109b --overwrite
+h2h-convert run input.epub output.hanja-ruby.epub --utagger3-path C:\utagger\v3_2109b --overwrite
 ```
 
 Optional Hanja level filtering:
 
 ```powershell
-python -m h2h_converter input.epub output.epub --hanja-levels "0 1 2 3 4 5"
+h2h-convert run input.epub output.epub --hanja-levels "0 1 2 3 4 5"
 ```
 
 By default, malformed spine documents that cannot be parsed as XHTML/XML are preserved unchanged and reported as warnings. Use `--strict` to stop at the first parse error instead.
+
+Exit codes: `0` success, `2` usage error, `3` input/output problem (missing
+input, existing output, unreadable EPUB), `4` UTagger problem.
 
 ## Pipeline
 
@@ -88,10 +126,19 @@ By default, malformed spine documents that cannot be parsed as XHTML/XML are pre
 
 ## Development
 
-Run tests:
+Install the package (no extras needed for the test suite):
 
 ```powershell
+pip install -e .
 python -m unittest discover -s tests -v
 ```
+
+To convert every sample EPUB under `sample_epubs/` into `data/`:
+
+```powershell
+.\convert-samples.ps1
+```
+
+The script finds Python in this order: the `-PythonPath` parameter, the `H2H_PYTHON` environment variable, `.venv\Scripts\python.exe`, then `python` on PATH. It passes an explicit UTagger path only when you give it one with `-UTaggerPath` or when the repo-local `.utagger\v3_2109b` folder exists; otherwise the converter's normal resolution order applies.
 
 The local folders `.utagger/`, `.codex-py-pkgs/`, `.codex-home/`, `.scratch/`, and UTagger check outputs are ignored because they are machine-local verification artifacts.

@@ -3,8 +3,8 @@ param(
     [string]$OutputDir = (Join-Path $PSScriptRoot "data"),
     [Alias("Filter")]
     [string]$NamePattern = "*.epub",
-    [string]$UTaggerPath = (Join-Path $PSScriptRoot ".utagger\v3_2109b"),
-    [string]$PythonPath = "C:\tmp\WinPython\WPy64-3.13.12.0\python\python.exe",
+    [string]$UTaggerPath = "",
+    [string]$PythonPath = "",
     [switch]$ListOnly,
     [switch]$NoOverwrite
 )
@@ -13,16 +13,50 @@ $ErrorActionPreference = "Stop"
 
 Set-Location $PSScriptRoot
 
-if (-not (Test-Path -LiteralPath $PythonPath)) {
-    $PythonPath = "python"
+function Resolve-PythonInterpreter {
+    if ($PythonPath) {
+        if (-not (Test-Path -LiteralPath $PythonPath)) {
+            throw "Python interpreter not found: $PythonPath"
+        }
+        return $PythonPath
+    }
+    if ($env:H2H_PYTHON) {
+        if (-not (Test-Path -LiteralPath $env:H2H_PYTHON)) {
+            throw "H2H_PYTHON points to a missing interpreter: $env:H2H_PYTHON"
+        }
+        return $env:H2H_PYTHON
+    }
+    $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython) {
+        return $venvPython
+    }
+    $onPath = Get-Command python -ErrorAction SilentlyContinue
+    if ($onPath) {
+        return $onPath.Source
+    }
+    throw "No Python interpreter found. Set one up first: py -3.12 -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -e `".[setup]`""
 }
+
+$python = Resolve-PythonInterpreter
 
 if (-not (Test-Path -LiteralPath $InputDir)) {
     throw "Sample EPUB folder not found: $InputDir"
 }
 
-if (-not (Test-Path -LiteralPath $UTaggerPath)) {
-    throw "UTagger folder not found: $UTaggerPath"
+# An explicit UTagger path is validated up front. With no explicit path, prefer the
+# repo-local install when it exists, and otherwise let the converter resolve UTagger
+# itself (UTAGGER3_PATH, pyutagger's saved path, etc.).
+$utaggerArg = ""
+if ($UTaggerPath) {
+    if (-not (Test-Path -LiteralPath $UTaggerPath)) {
+        throw "UTagger folder not found: $UTaggerPath"
+    }
+    $utaggerArg = $UTaggerPath
+} else {
+    $localInstall = Join-Path $PSScriptRoot ".utagger\v3_2109b"
+    if (Test-Path -LiteralPath $localInstall) {
+        $utaggerArg = $localInstall
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
@@ -52,7 +86,8 @@ from h2h_converter.utagger import UTaggerHanjaConverter, UTaggerOptions
 
 
 output_dir = Path(sys.argv[1])
-utagger_path = Path(sys.argv[2])
+raw_utagger_path = sys.argv[2]
+utagger_path = Path(raw_utagger_path) if raw_utagger_path else None
 overwrite = sys.argv[3] == "1"
 epubs = [Path(raw_path) for raw_path in sys.argv[4:]]
 
@@ -76,7 +111,7 @@ with UTaggerHanjaConverter(UTaggerOptions(utagger3_path=utagger_path)) as conver
             print(f"  warning: {len(stats.warnings) - 5} more warning(s) omitted", flush=True)
 '@
 
-& $PythonPath -c $converterScript $OutputDir $UTaggerPath $overwrite @($epubs.FullName)
+& $python -c $converterScript $OutputDir $utaggerArg $overwrite @($epubs.FullName)
 if ($LASTEXITCODE -ne 0) {
     throw "Sample conversion failed"
 }

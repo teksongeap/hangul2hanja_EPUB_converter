@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 from ctypes import c_char_p, c_int, c_wchar_p, cdll
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 from typing import Sequence
 
+from . import config
 from .ruby import has_hangul
 
 
@@ -64,12 +67,13 @@ class UTaggerHanjaConverter:
         previous_cwd = Path.cwd()
         try:
             os.chdir(bin_path)
-            dll = cdll.LoadLibrary(str(dll_path))
-            dll.Global_init2.restype = c_wchar_p
-            dll.Global_init2(c_char_p(str(config_path).encode("cp949")), c_int(0))
-            dll.newUCMA2(c_int(self._thread))
-            dll.cmaSetNewlineN(c_int(self._thread))
-            dll.cma_tag_line_BSP.restype = c_wchar_p
+            with _suppress_native_stdout():
+                dll = cdll.LoadLibrary(str(dll_path))
+                dll.Global_init2.restype = c_wchar_p
+                dll.Global_init2(c_char_p(str(config_path).encode("cp949")), c_int(0))
+                dll.newUCMA2(c_int(self._thread))
+                dll.cmaSetNewlineN(c_int(self._thread))
+                dll.cma_tag_line_BSP.restype = c_wchar_p
             self._dll = dll
             UTaggerHanjaConverter._global_loaded = True
         finally:
@@ -126,26 +130,78 @@ def _extract_converted_sentence(raw: str, fallback: str) -> str:
     return fallback
 
 
-def _resolve_utagger3_path(explicit_path: Path | None) -> Path:
+@contextlib.contextmanager
+def _suppress_native_stdout():
+    """Silence the UTagger DLL's dictionary-loading chatter on stdout.
+
+    UTaggerR64.dll writes its loadIndex/loadDic progress directly to file
+    descriptor 1 during Global_init2. That noise would bury the CLI's own
+    output, so fd 1 is temporarily redirected to NUL while the DLL loads.
+    """
+    try:
+        fd = sys.stdout.fileno()
+    except (AttributeError, OSError, ValueError):
+        yield
+        return
+
+    sys.stdout.flush()
+    saved_fd = os.dup(fd)
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, fd)
+        finally:
+            os.close(devnull)
+        yield
+    finally:
+        os.dup2(saved_fd, fd)
+        os.close(saved_fd)
+
+
+@dataclass(frozen=True)
+class ResolvedInstall:
+    """A located UTagger 3 install plus the source that supplied it."""
+
+    path: Path
+    source: str
+
+
+def resolve_utagger3_path(explicit_path: Path | None) -> ResolvedInstall | None:
+    """Find a UTagger 3 install, recording which source provided it.
+
+    Precedence: --utagger3-path > UTAGGER3_PATH > h2h config file >
+    pyutagger's saved path > .utagger/v3_* in the working directory.
+    """
     if explicit_path is not None:
-        return explicit_path.resolve()
+        return ResolvedInstall(Path(explicit_path).resolve(), "--utagger3-path")
 
     env_path = os.environ.get("UTAGGER3_PATH")
     if env_path:
-        return Path(env_path).resolve()
+        return ResolvedInstall(Path(env_path).resolve(), "UTAGGER3_PATH environment variable")
+
+    config_path = config.get_utagger3_path()
+    if config_path:
+        return ResolvedInstall(config_path.resolve(), f"config file ({config.config_path()})")
 
     saved_path = _read_saved_pyutagger_path()
     if saved_path:
-        return saved_path.resolve()
+        return ResolvedInstall(saved_path.resolve(), "pyutagger saved path (~/pyutagger_path.json)")
 
     local_install = _find_local_workspace_install()
     if local_install:
-        return local_install.resolve()
+        return ResolvedInstall(local_install.resolve(), "workspace .utagger folder")
 
-    raise RuntimeError(
-        "UTagger 3 is not configured. Pass --utagger3-path, set UTAGGER3_PATH, "
-        "or install UTagger 3 with pyutagger's downloader first."
-    )
+    return None
+
+
+def _resolve_utagger3_path(explicit_path: Path | None) -> Path:
+    resolved = resolve_utagger3_path(explicit_path)
+    if resolved is None:
+        raise RuntimeError(
+            "UTagger 3 is not configured. Run 'h2h-convert setup' to install it, "
+            "or point at an existing install with --utagger3-path or UTAGGER3_PATH."
+        )
+    return resolved.path
 
 
 def _read_saved_pyutagger_path() -> Path | None:
