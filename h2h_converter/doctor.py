@@ -6,7 +6,12 @@ from pathlib import Path
 import struct
 import sys
 
-from .utagger import UTaggerHanjaConverter, UTaggerOptions, resolve_utagger3_path
+from .utagger import (
+    UTaggerHanjaConverter,
+    UTaggerOptions,
+    resolve_utagger3_path,
+    utagger3_library_name,
+)
 
 
 TEST_SENTENCE = "대한민국의 역사는 오래되었다."
@@ -38,10 +43,10 @@ def run_doctor(utagger3_path: Path | None = None) -> int:
         )
 
     if struct.calcsize("P") == 8:
-        ok("64-bit interpreter (required by the UTagger DLL)")
+        ok("64-bit interpreter (required by UTagger's 64-bit native library)")
     else:
         fail(
-            "32-bit Python cannot load UTagger's 64-bit DLL.",
+            "32-bit Python cannot load UTagger's 64-bit native library.",
             "Install 64-bit CPython and recreate your virtual environment.",
         )
 
@@ -55,14 +60,17 @@ def run_doctor(utagger3_path: Path | None = None) -> int:
         return 4
     ok(f"UTagger 3 path: {resolved.path} (from {resolved.source})")
 
-    expected_files = [resolved.path / "bin" / "UTaggerR64.dll", resolved.path / "Hlxcfg.txt"]
+    expected_files = [
+        resolved.path / "bin" / utagger3_library_name(),
+        resolved.path / "Hlxcfg.txt",
+    ]
     missing = [path for path in expected_files if not path.exists()]
     if missing:
         for path in missing:
             fail(f"Missing file: {path}", "Re-run 'h2h-convert setup' to reinstall UTagger 3.")
         print(f"\ndoctor: {failures} check(s) failed.")
         return 4
-    ok("UTagger DLL and configuration files are present")
+    ok("UTagger native library and configuration files are present")
 
     try:
         with UTaggerHanjaConverter(UTaggerOptions(utagger3_path=resolved.path)) as converter:

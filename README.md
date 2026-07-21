@@ -22,7 +22,12 @@ The converter now works at paragraph-like block scope where possible, so words s
 
 ## Requirements
 
-- Windows 10/11, 64-bit (UTagger ships as a 64-bit DLL; 32-bit Python cannot load it).
+- Windows 10/11 (x64) or Linux (x86_64). UTagger ships 64-bit x86 native
+  libraries for both (`UTaggerR64.dll` / `UTagger.so`), and the converter
+  loads whichever matches your OS; 32-bit Python cannot load them.
+  - ARM64 Windows: use x64 Python under emulation.
+  - macOS: not supported natively (UTagger has no macOS build). The practical
+    route is a Linux `amd64` container, which also works on Apple Silicon.
 - CPython 3.10–3.13, 64-bit.
 - About 200 MB of disk space for the UTagger 3 binaries and dictionaries.
 
@@ -31,8 +36,16 @@ The converter now works at paragraph-like block scope where possible, so words s
 Create a virtual environment and install the package:
 
 ```powershell
+# Windows PowerShell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+pip install -e ".[setup]"
+```
+
+```bash
+# Linux
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[setup]"
 ```
 
@@ -45,10 +58,10 @@ h2h-convert setup
 ```
 
 This downloads the UTagger 3 binaries and dictionaries into your per-user data
-directory (`%LOCALAPPDATA%\h2h-converter\utagger`) and saves the location to a
-config file (`%APPDATA%\h2h-converter\config.json`). Use `--install-dir DIR` to
-install elsewhere. If a usable install already exists in that directory, `setup`
-reuses it instead of downloading again.
+directory (`%LOCALAPPDATA%\h2h-converter\utagger` on Windows,
+`~/.local/share/h2h-converter/utagger` on Linux) and saves the location to a
+config file. Use `--install-dir DIR` to install elsewhere. If a usable install
+already exists in that directory, `setup` reuses it instead of downloading again.
 
 Then verify the whole chain end to end:
 
@@ -174,6 +187,9 @@ To convert every sample EPUB under `sample_epubs/` into `data/`:
 ```powershell
 .\convert-samples.ps1
 ```
+
+(This helper script is Windows-only; everywhere else the native batch mode does
+the same job: `h2h-convert run sample_epubs --output-dir data`.)
 
 The script finds Python in this order: the `-PythonPath` parameter, the `H2H_PYTHON` environment variable, `.venv\Scripts\python.exe`, then `python` on PATH. It passes an explicit UTagger path only when you give it one with `-UTaggerPath` or when the repo-local `.utagger\v3_2109b` folder exists; otherwise the converter's normal resolution order applies.
 

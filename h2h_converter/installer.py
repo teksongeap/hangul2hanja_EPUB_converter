@@ -7,6 +7,7 @@ import shutil
 import struct
 
 from . import config
+from .utagger import utagger3_library_name
 
 
 UTAGGER_VERSION_KEY = "utagger3"
@@ -21,12 +22,12 @@ def _load_downloader():
 
 
 def find_utagger3_install(base_dir: Path) -> Path | None:
-    """Locate a usable UTagger 3 install (one with the DLL) under a base directory."""
-    if (base_dir / "bin" / "UTaggerR64.dll").exists():
+    """Locate a usable UTagger 3 install (one with the library) under a base directory."""
+    if (base_dir / "bin" / utagger3_library_name()).exists():
         return base_dir
     candidates = sorted(base_dir.glob("v3_*"), reverse=True)
     for candidate in candidates:
-        if (candidate / "bin" / "UTaggerR64.dll").exists():
+        if (candidate / "bin" / utagger3_library_name()).exists():
             return candidate
     return None
 
@@ -35,7 +36,7 @@ def run_setup(install_dir: Path | None) -> int:
     print("h2h-convert setup: install UTagger 3")
 
     if struct.calcsize("P") != 8:
-        print("[FAIL] A 64-bit Python interpreter is required: UTagger ships as a 64-bit DLL.")
+        print("[FAIL] A 64-bit Python interpreter is required: UTagger ships as a 64-bit native library.")
         print("       fix: install 64-bit CPython and recreate your virtual environment.")
         return 2
 

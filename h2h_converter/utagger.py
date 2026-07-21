@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import time
 from typing import Sequence
 
 from . import config
@@ -17,6 +18,15 @@ from .ruby import has_hangul
 
 CONFIG_MODE_RE = re.compile(r"(?m)^hangul_to_hanja\s+\d+\s*$")
 CONFIG_LEVEL_RE = re.compile(r"(?m)^hanjaLevel\s+.*$")
+
+
+def utagger3_library_name() -> str:
+    """Platform-specific filename of the UTagger 3 native library.
+
+    UTagger 3 packages ship both builds: UTaggerR64.dll (Windows x64) and
+    UTagger.so (Linux x86_64). No macOS build exists.
+    """
+    return "UTaggerR64.dll" if os.name == "nt" else "UTagger.so"
 
 
 @dataclass(frozen=True)
@@ -59,18 +69,26 @@ class UTaggerHanjaConverter:
         base_config = self.options.base_config or utagger_path / "Hlxcfg.txt"
         config_path = self._write_runtime_config(base_config)
 
-        dll_path = utagger_path / "bin" / "UTaggerR64.dll"
+        library_path = utagger_path / "bin" / utagger3_library_name()
         bin_path = utagger_path / "bin"
-        if not dll_path.exists():
-            raise FileNotFoundError(f"UTagger DLL not found: {dll_path}")
+        if not library_path.exists():
+            raise FileNotFoundError(f"UTagger library not found: {library_path}")
+
+        # The native library takes the config path as a narrow C string: cp949
+        # on Korean Windows, the filesystem encoding (UTF-8) elsewhere.
+        config_path_bytes = (
+            str(config_path).encode("cp949")
+            if os.name == "nt"
+            else os.fsencode(str(config_path))
+        )
 
         previous_cwd = Path.cwd()
         try:
             os.chdir(bin_path)
             with _suppress_native_stdout():
-                dll = cdll.LoadLibrary(str(dll_path))
+                dll = cdll.LoadLibrary(str(library_path))
                 dll.Global_init2.restype = c_wchar_p
-                dll.Global_init2(c_char_p(str(config_path).encode("cp949")), c_int(0))
+                dll.Global_init2(c_char_p(config_path_bytes), c_int(0))
                 dll.newUCMA2(c_int(self._thread))
                 dll.cmaSetNewlineN(c_int(self._thread))
                 dll.cma_tag_line_BSP.restype = c_wchar_p
@@ -81,8 +99,12 @@ class UTaggerHanjaConverter:
 
     def release(self) -> None:
         if self._dll is not None:
-            self._dll.deleteUCMA(c_int(self._thread))
-            self._dll.Global_release()
+            with _suppress_native_stdout():
+                self._dll.deleteUCMA(c_int(self._thread))
+                self._dll.Global_release()
+                # The Linux build logs shared-memory cleanup from a worker
+                # thread; give it a moment to finish before restoring fds.
+                time.sleep(0.15)
             self._dll = None
             UTaggerHanjaConverter._global_loaded = False
         if self._temp_dir is not None:
@@ -132,30 +154,63 @@ def _extract_converted_sentence(raw: str, fallback: str) -> str:
 
 @contextlib.contextmanager
 def _suppress_native_stdout():
-    """Silence the UTagger DLL's dictionary-loading chatter on stdout.
+    """Silence the UTagger library's dictionary-loading chatter.
 
-    UTaggerR64.dll writes its loadIndex/loadDic progress directly to file
-    descriptor 1 during Global_init2. That noise would bury the CLI's own
-    output, so fd 1 is temporarily redirected to NUL while the DLL loads.
+    The UTagger 3 native library writes its loadIndex/loadDic progress (and
+    its shared-memory release messages on Linux) directly to file descriptors
+    1 and 2 during Global_init2/Global_release. That noise would bury the
+    CLI's own output, so both fds are temporarily redirected to the null
+    device while native calls run.
     """
-    try:
-        fd = sys.stdout.fileno()
-    except (AttributeError, OSError, ValueError):
+    streams = [sys.stdout, sys.stderr]
+    fds: list[int] = []
+    for stream in streams:
+        try:
+            fds.append(stream.fileno())
+        except (AttributeError, OSError, ValueError):
+            continue
+    fds = sorted(set(fds))
+    if not fds:
         yield
         return
 
-    sys.stdout.flush()
-    saved_fd = os.dup(fd)
+    for stream in streams:
+        try:
+            stream.flush()
+        except (AttributeError, OSError, ValueError):
+            continue
+
+    saved = {fd: os.dup(fd) for fd in fds}
     try:
         devnull = os.open(os.devnull, os.O_WRONLY)
         try:
-            os.dup2(devnull, fd)
+            for fd in fds:
+                os.dup2(devnull, fd)
         finally:
             os.close(devnull)
         yield
+        # The native library buffers some of its log lines in the C runtime's
+        # stdio buffers; flush them while the fds still point at the null
+        # device, otherwise they surface later at process exit.
+        _flush_c_streams()
     finally:
-        os.dup2(saved_fd, fd)
-        os.close(saved_fd)
+        for fd, saved_fd in saved.items():
+            os.dup2(saved_fd, fd)
+            os.close(saved_fd)
+
+
+def _flush_c_streams() -> None:
+    """fflush(NULL) on the C runtime(s) the native library may log through."""
+    candidates = ["libc.so.6", "libc.dylib"] if os.name != "nt" else [
+        "msvcrt",
+        "ucrtbase",
+        "api-ms-win-crt-stdio-l1-1-0",
+    ]
+    for name in candidates:
+        try:
+            cdll.LoadLibrary(name).fflush(None)
+        except (OSError, AttributeError):
+            continue
 
 
 @dataclass(frozen=True)
@@ -222,6 +277,6 @@ def _find_local_workspace_install() -> Path | None:
         return None
     candidates = sorted(root.glob("v3_*"), reverse=True)
     for candidate in candidates:
-        if (candidate / "bin" / "UTaggerR64.dll").exists():
+        if (candidate / "bin" / utagger3_library_name()).exists():
             return candidate
     return None

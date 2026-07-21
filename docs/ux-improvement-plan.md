@@ -258,7 +258,40 @@ Only after Phases 1–5 stabilize:
 ## 6. Non-goals (for now)
 
 - Replacing the ctypes DLL integration (it works and is offline).
-- Linux/macOS support — blocked by UTagger being a Windows x64 DLL; revisit only if
-  an alternative Hangul→Hanja engine appears.
+- ~~Linux/macOS support~~ — **revised 2026-07-21 after a WSL experiment:** UTagger 3's
+  package ships `bin/UTagger.so` alongside the Windows DLL, and it was verified on
+  WSL (Ubuntu, Python 3.10, x86_64) to return output identical to Windows, including
+  the `한글(漢字)` line. Linux support needs only a platform-aware library name in
+  `utagger.py`/`installer.py`/`doctor.py` plus docs. macOS remains genuinely blocked:
+  UTagger ships no Mach-O build and pyutagger's downloader rejects macOS — the only
+  routes are a Docker `linux/amd64` container or a lower-quality pure-Python fallback
+  engine behind the existing `TextConverter` protocol. ARM64 has no UTagger builds
+  (Windows ARM64 → x64 Python emulation; Apple Silicon → the Docker route).
 - Changing conversion quality/scope behavior — this plan is UX-only; the core
   pipeline (`epub.py`, `ruby.py`) is untouched by Phases 1–5.
+
+## 7. Addendum — native Linux support (landed 2026-07-21)
+
+What was believed to be a hard blocker ("UTagger is a Windows DLL") turned out to be
+~30 lines of platform detection: every UTagger 3 package ships `bin/UTagger.so`
+(Linux x86_64) next to `bin/UTaggerR64.dll`. Changes:
+
+- New `utagger3_library_name()` selects the library per OS; used by the loader,
+  workspace discovery, `installer.find_utagger3_install`, and `doctor`.
+- Config path passed to `Global_init2` uses cp949 on Windows, the filesystem
+  encoding (UTF-8) elsewhere.
+- `_suppress_native_stdout` now redirects fds 1 **and** 2 and ends with an
+  `fflush(NULL)` against the C runtime — the Linux build logs through buffered
+  stdio and a worker thread, which leaked without both measures.
+- README Requirements/Setup cover Windows + Linux, with macOS/ARM documented as
+  container-only. `convert-samples.ps1` is documented as a Windows convenience;
+  the native batch mode is the cross-platform path.
+
+Verified end to end in WSL (Ubuntu, Python 3.10.12, x86_64): full test suite
+(60/60, same as Windows), `doctor` all checks pass with clean output, and a real
+batch conversion producing **byte-identical ruby markup** to the Windows build.
+Two test fixtures that used Windows-shaped paths were made platform-aware — the
+only cross-platform test breakage found.
+
+Remaining platform gaps (upstream, not ours): no macOS build of UTagger (use a
+Linux `amd64` container), no ARM64 builds anywhere.

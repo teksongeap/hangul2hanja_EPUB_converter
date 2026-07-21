@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from contextlib import redirect_stdout
 from pathlib import Path
 import tempfile
@@ -11,7 +12,15 @@ import zipfile
 
 from h2h_converter import cli, config, doctor, installer
 from h2h_converter.epub import ConversionStats
-from h2h_converter.utagger import ResolvedInstall, resolve_utagger3_path
+from h2h_converter.utagger import (
+    ResolvedInstall,
+    resolve_utagger3_path,
+    utagger3_library_name,
+)
+
+
+def _native_lib_name() -> str:
+    return utagger3_library_name()
 
 
 def _run_cli(argv: list[str]) -> tuple[int, str, str]:
@@ -86,6 +95,26 @@ def _fake_convert_epub(input_epub: Path, output_epub: Path, converter, **kwargs)
     return ConversionStats(documents=3, text_nodes=10, ruby_nodes=42)
 
 
+class PlatformNamingTests(unittest.TestCase):
+    def test_library_name_matches_platform(self) -> None:
+        expected = "UTaggerR64.dll" if os.name == "nt" else "UTagger.so"
+        self.assertEqual(utagger3_library_name(), expected)
+
+    def test_find_install_uses_platform_library(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            install = base / "v3_x"
+            (install / "bin").mkdir(parents=True)
+            (install / "bin" / utagger3_library_name()).write_bytes(b"")
+
+            self.assertEqual(installer.find_utagger3_install(base), install)
+            # An install containing only the *other* platform's library is not usable here.
+            other = "UTagger.so" if os.name == "nt" else "UTaggerR64.dll"
+            (install / "bin" / utagger3_library_name()).unlink()
+            (install / "bin" / other).write_bytes(b"")
+            self.assertIsNone(installer.find_utagger3_install(base))
+
+
 class ConfigTests(unittest.TestCase):
     def test_utagger3_path_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -105,6 +134,11 @@ class ConfigTests(unittest.TestCase):
                 self.assertIsNone(config.get_utagger3_path())
 
 
+def _abs_path(name: str) -> Path:
+    """An absolute path shaped for the current platform (for resolution tests)."""
+    return Path(rf"C:\{name}") if os.name == "nt" else Path(f"/{name}")
+
+
 class ResolveUtagger3PathTests(unittest.TestCase):
     def test_explicit_path_wins(self) -> None:
         resolved = resolve_utagger3_path(Path("some/dir"))
@@ -113,17 +147,17 @@ class ResolveUtagger3PathTests(unittest.TestCase):
 
     def test_env_var_beats_config_file(self) -> None:
         with (
-            mock.patch.dict("os.environ", {"UTAGGER3_PATH": r"C:\from-env"}),
-            mock.patch.object(config, "get_utagger3_path", return_value=Path(r"C:\from-config")),
+            mock.patch.dict("os.environ", {"UTAGGER3_PATH": str(_abs_path("from-env"))}),
+            mock.patch.object(config, "get_utagger3_path", return_value=_abs_path("from-config")),
         ):
             resolved = resolve_utagger3_path(None)
-        self.assertEqual(resolved.path, Path(r"C:\from-env"))
+        self.assertEqual(resolved.path, _abs_path("from-env"))
         self.assertIn("UTAGGER3_PATH", resolved.source)
 
     def test_config_file_beats_pyutagger_saved_path(self) -> None:
-        with mock.patch.object(config, "get_utagger3_path", return_value=Path(r"C:\from-config")):
+        with mock.patch.object(config, "get_utagger3_path", return_value=_abs_path("from-config")):
             resolved = resolve_utagger3_path(None)
-        self.assertEqual(resolved.path, Path(r"C:\from-config"))
+        self.assertEqual(resolved.path, _abs_path("from-config"))
         self.assertTrue(resolved.source.startswith("config file"))
 
     def test_returns_none_when_nothing_is_configured(self) -> None:
@@ -440,7 +474,7 @@ class DoctorTests(unittest.TestCase):
     def _healthy_install(self, root: Path) -> Path:
         install = root / "v3_test"
         (install / "bin").mkdir(parents=True)
-        (install / "bin" / "UTaggerR64.dll").write_bytes(b"")
+        (install / "bin" / _native_lib_name()).write_bytes(b"")
         (install / "Hlxcfg.txt").write_text("hangul_to_hanja 2\n", encoding="utf-8")
         return install
 
@@ -458,7 +492,7 @@ class DoctorTests(unittest.TestCase):
     def test_missing_dll_returns_4(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             install = self._healthy_install(Path(tmp))
-            (install / "bin" / "UTaggerR64.dll").unlink()
+            (install / "bin" / _native_lib_name()).unlink()
             resolved = ResolvedInstall(install, "test")
 
             stdout = io.StringIO()
@@ -534,7 +568,7 @@ class InstallerTests(unittest.TestCase):
             base = Path(tmp) / "utagger"
             install = base / "v3_existing"
             (install / "bin").mkdir(parents=True)
-            (install / "bin" / "UTaggerR64.dll").write_bytes(b"")
+            (install / "bin" / _native_lib_name()).write_bytes(b"")
 
             stdout = io.StringIO()
             with (
@@ -571,7 +605,7 @@ class InstallerTests(unittest.TestCase):
             def install_utagger(ver: str, base: str) -> bool:
                 install = Path(base) / "v3_downloaded"
                 (install / "bin").mkdir(parents=True)
-                (install / "bin" / "UTaggerR64.dll").write_bytes(b"")
+                (install / "bin" / _native_lib_name()).write_bytes(b"")
                 return True
 
         with tempfile.TemporaryDirectory() as tmp:

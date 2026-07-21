@@ -115,7 +115,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--install-dir",
         type=Path,
         help="Where to install UTagger 3. Default: per-user data directory "
-        "(%%LOCALAPPDATA%%\\h2h-converter\\utagger on Windows).",
+        "(%%LOCALAPPDATA%%\\h2h-converter\\utagger on Windows, "
+        "~/.local/share/h2h-converter/utagger on Linux).",
     )
 
     doctor = subparsers.add_parser(
