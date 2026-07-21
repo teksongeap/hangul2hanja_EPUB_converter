@@ -7,7 +7,7 @@ import posixpath
 import re
 import shutil
 import tempfile
-from typing import Protocol
+from typing import Callable, Protocol
 from urllib.parse import unquote
 import zipfile
 import xml.etree.ElementTree as ET
@@ -131,6 +131,7 @@ def convert_epub(
     add_css: bool = True,
     best_effort: bool = True,
     overwrite: bool = False,
+    progress: Callable[[int, int, str], None] | None = None,
 ) -> ConversionStats:
     input_epub = Path(input_epub)
     output_epub = Path(output_epub)
@@ -148,7 +149,10 @@ def convert_epub(
         modified: dict[str, bytes] = {}
         stats = ConversionStats()
 
-        for doc_path in spine_docs:
+        for index, doc_path in enumerate(spine_docs, start=1):
+            if progress is not None:
+                progress(index, len(spine_docs), doc_path)
+
             doc_member = doc_path if doc_path in source_names else _find_zip_member(source, doc_path)
             if doc_member is None:
                 stats.skipped_documents += 1
@@ -172,6 +176,44 @@ def convert_epub(
         _write_epub(source, output_epub, modified)
 
     return stats
+
+
+def collect_epub_texts(input_epub: Path, limit: int) -> list[tuple[str, str]]:
+    """Collect up to ``limit`` Hangul text segments from spine documents.
+
+    Used by the CLI's ``--preview`` mode to show before/after pairs without
+    writing an output file. Returns ``(document path, text)`` pairs in reading
+    order. Documents that cannot be parsed are skipped.
+    """
+    input_epub = Path(input_epub)
+    if not input_epub.exists():
+        raise FileNotFoundError(input_epub)
+    if limit < 1:
+        return []
+
+    texts: list[tuple[str, str]] = []
+    with zipfile.ZipFile(input_epub, "r") as source:
+        rootfile = _find_rootfile(source)
+        rootfile_member = _find_zip_member(source, rootfile) or rootfile
+        spine_docs = _find_spine_documents(source.read(rootfile_member), rootfile_member)
+
+        for doc_path in spine_docs:
+            doc_member = _find_zip_member(source, doc_path)
+            if doc_member is None:
+                continue
+            try:
+                root = _parse_xhtml_bytes(source.read(doc_member))
+            except ET.ParseError:
+                continue
+
+            tasks: list[ConversionTask] = []
+            _collect_conversion_tasks(root, tasks)
+            for task in tasks:
+                texts.append((doc_path, task.text))
+                if len(texts) >= limit:
+                    return texts
+
+    return texts
 
 
 def transform_xhtml_bytes(

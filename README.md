@@ -88,28 +88,64 @@ We verified this locally by blocking Python socket creation and converting sampl
 ## Convert An EPUB
 
 ```powershell
-h2h-convert run input.epub output.hanja-ruby.epub --overwrite
+h2h-convert run input.epub
+```
+
+With no output argument the converter writes `input.hanja-ruby.epub` next to the
+input. You can also name the output explicitly:
+
+```powershell
+h2h-convert run input.epub output.epub --overwrite
 ```
 
 (`h2h-convert input.epub output.epub` without `run` still works but is
 deprecated; `python -m h2h_converter ...` is equivalent to `h2h-convert ...`.)
 
-With an explicit UTagger 3 path:
+### Preview before converting
 
 ```powershell
-h2h-convert run input.epub output.hanja-ruby.epub --utagger3-path C:\utagger\v3_2109b --overwrite
+h2h-convert run input.epub --preview
 ```
 
-Optional Hanja level filtering:
+Prints before/after pairs for the first 10 Korean text segments (use
+`--preview N` for more) without writing an output file — a quick way to see
+what the annotations will look like.
+
+### Batch conversion
 
 ```powershell
+h2h-convert run book1.epub book2.epub --output-dir out
+h2h-convert run "D:\Books\Korean\*.epub" --output-dir out
+h2h-convert run D:\Books\Korean --output-dir out
+```
+
+Every input becomes `<name>.hanja-ruby.epub` in the output folder, converted
+with a single shared UTagger instance. Existing outputs are skipped (so batches
+are resumable) unless `--overwrite` is given; folder expansion automatically
+skips `*.hanja-ruby.epub` files so re-running a batch in place is safe.
+
+### Progress, warnings, reports
+
+Per-document progress is shown while converting (a live line on the terminal,
+plain lines when piped). Warnings are truncated to 5 on screen by default:
+
+- `--verbose` prints every warning
+- `--quiet` suppresses progress and summaries (errors only)
+- `--report report.txt` writes the full warning list to a file
+
+### Other options
+
+```powershell
+h2h-convert run input.epub --utagger3-path C:\utagger\v3_2109b --overwrite
 h2h-convert run input.epub output.epub --hanja-levels "0 1 2 3 4 5"
 ```
 
 By default, malformed spine documents that cannot be parsed as XHTML/XML are preserved unchanged and reported as warnings. Use `--strict` to stop at the first parse error instead.
 
 Exit codes: `0` success, `2` usage error, `3` input/output problem (missing
-input, existing output, unreadable EPUB), `4` UTagger problem.
+input, existing output, unreadable EPUB, nothing converted), `4` UTagger
+problem, `5` partial success (converted, but some documents were preserved
+unchanged or some files were skipped/failed).
 
 ## Pipeline
 

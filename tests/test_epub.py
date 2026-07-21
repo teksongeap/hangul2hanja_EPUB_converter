@@ -5,7 +5,7 @@ import tempfile
 import unittest
 import zipfile
 
-from h2h_converter.epub import convert_epub, transform_xhtml_bytes
+from h2h_converter.epub import collect_epub_texts, convert_epub, transform_xhtml_bytes
 
 
 class FakeConverter:
@@ -83,6 +83,44 @@ class EpubConversionTests(unittest.TestCase):
                     chapter,
                 )
                 self.assertIn("data-h2h-ruby-style", chapter)
+
+    def test_convert_epub_reports_progress_per_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tmp_path = Path(temp_dir)
+            input_epub = tmp_path / "input.epub"
+            output_epub = tmp_path / "output.epub"
+            _write_minimal_epub(input_epub)
+
+            calls: list[tuple[int, int, str]] = []
+            stats = convert_epub(
+                input_epub,
+                output_epub,
+                FakeConverter(),
+                progress=lambda current, total, name: calls.append((current, total, name)),
+            )
+
+            self.assertEqual(stats.documents, 1)
+            self.assertEqual(calls, [(1, 1, "OEBPS/chapter.xhtml")])
+
+    def test_collect_epub_texts_returns_segments_in_reading_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_epub = Path(temp_dir) / "input.epub"
+            _write_minimal_epub(input_epub)
+
+            texts = collect_epub_texts(input_epub, 5)
+
+            self.assertEqual(
+                texts,
+                [("OEBPS/chapter.xhtml", "대한민국의 역사는 오래되었다.")],
+            )
+
+    def test_collect_epub_texts_respects_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_epub = Path(temp_dir) / "input.epub"
+            _write_minimal_epub(input_epub)
+
+            self.assertEqual(len(collect_epub_texts(input_epub, 1)), 1)
+            self.assertEqual(collect_epub_texts(input_epub, 0), [])
 
     def test_transform_xhtml_maps_annotations_across_inline_tags(self) -> None:
         xhtml = """<?xml version="1.0" encoding="UTF-8"?>

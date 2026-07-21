@@ -145,6 +145,19 @@ h2h-convert run <input> [output] [opts]   # conversion (see Phase 3)
 
 ### Phase 3 — Conversion CLI ergonomics (`h2h-convert run`)
 
+> **Status: landed 2026-07-21.** `run` now covers the full daily-use surface:
+> default output naming (`<stem>.hanja-ruby.epub`), native batch mode (multiple
+> files, folders, and globs via `--output-dir`, one shared UTagger instance,
+> existing outputs skipped for resumable batches, folder expansion excludes
+> `*.hanja-ruby.epub` so re-running in place is safe, duplicate-output-stem
+> guard), per-document TTY-aware progress on stderr (new `progress` callback on
+> `convert_epub`), `--preview N` before/after sampling via new
+> `collect_epub_texts()` (verified live against the real novel), `--verbose` /
+> `--quiet` / `--report FILE` diagnostics, and exit code `5` for partial
+> success. Verified end to end: preview on the real sample book, batch
+> conversion with real ruby output, exit codes 0/3/5 in live runs. 58 tests
+> passing.
+
 1. **Default output name:** if the output argument is omitted, write
    `<stem>.hanja-ruby.epub` next to the input (the convention the PowerShell script
    already uses).
