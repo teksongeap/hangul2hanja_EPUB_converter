@@ -191,6 +191,16 @@ h2h-convert run <input> [output] [opts]   # conversion (see Phase 3)
 
 ### Phase 4 — Retire the here-string batch script
 
+> **Status: landed 2026-07-21.** `convert-samples.ps1` no longer contains any
+> embedded Python: it resolves the interpreter (unchanged discovery order),
+> translates its parameters into a single `python -m h2h_converter run` batch
+> call (folder input by default, glob forwarding for `-Filter`, `--overwrite`
+> unless `-NoOverwrite`, `--utagger3-path` when explicit or repo-local), and
+> maps CLI exit codes — 2/3/4 throw, 5 prints a warning instead of failing.
+> Verified live: full batch run (exit 0), `-NoOverwrite` resume (skips reported,
+> exit 5 handled), and `-ListOnly`. One code path now exists for batch
+> conversion; the script is a convenience, not a parallel implementation.
+
 - Reimplement `convert-samples.ps1` as a thin wrapper over the native batch mode
   (Phase 3.2): resolve the interpreter (Phase 1.3), then call
   `h2h-convert run sample_epubs\*.epub --output-dir data\`.

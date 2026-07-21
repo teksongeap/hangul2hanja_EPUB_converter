@@ -1,3 +1,6 @@
+# Thin wrapper around the CLI's native batch mode: converts every EPUB in a
+# folder into <name>.hanja-ruby.epub. Kept for convenience on Windows; the same
+# job works everywhere with: h2h-convert run <folder> --output-dir <dir>
 param(
     [string]$InputDir = (Join-Path $PSScriptRoot "sample_epubs"),
     [string]$OutputDir = (Join-Path $PSScriptRoot "data"),
@@ -43,9 +46,16 @@ if (-not (Test-Path -LiteralPath $InputDir)) {
     throw "Sample EPUB folder not found: $InputDir"
 }
 
+if ($ListOnly) {
+    Get-ChildItem -LiteralPath $InputDir -Filter "*.epub" -File |
+        Where-Object { $_.Name -like $NamePattern } |
+        ForEach-Object { Write-Host $_.Name }
+    exit 0
+}
+
 # An explicit UTagger path is validated up front. With no explicit path, prefer the
 # repo-local install when it exists, and otherwise let the converter resolve UTagger
-# itself (UTAGGER3_PATH, pyutagger's saved path, etc.).
+# itself (UTAGGER3_PATH, config file, pyutagger's saved path).
 $utaggerArg = ""
 if ($UTaggerPath) {
     if (-not (Test-Path -LiteralPath $UTaggerPath)) {
@@ -59,61 +69,41 @@ if ($UTaggerPath) {
     }
 }
 
+$cliArgs = [System.Collections.Generic.List[string]]::new()
+$cliArgs.Add("-m")
+$cliArgs.Add("h2h_converter")
+$cliArgs.Add("run")
+# Folder input lets the CLI skip its own *.hanja-ruby.epub outputs; a custom
+# name pattern is forwarded as a glob the CLI expands itself.
+if ($NamePattern -eq "*.epub") {
+    $cliArgs.Add($InputDir)
+} else {
+    $cliArgs.Add((Join-Path $InputDir $NamePattern))
+}
+$cliArgs.Add("--output-dir")
+$cliArgs.Add($OutputDir)
+if (-not $NoOverwrite) {
+    $cliArgs.Add("--overwrite")
+}
+if ($utaggerArg) {
+    $cliArgs.Add("--utagger3-path")
+    $cliArgs.Add($utaggerArg)
+}
+
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-$epubs = Get-ChildItem -LiteralPath $InputDir -Filter "*.epub" -File |
-    Where-Object { $_.Name -like $NamePattern }
-if ($epubs.Count -eq 0) {
-    Write-Host "No EPUB files found in $InputDir matching $NamePattern"
-    exit 0
-}
-
-if ($ListOnly) {
-    $epubs | ForEach-Object { Write-Host $_.Name }
-    exit 0
-}
-
 $env:PYTHONIOENCODING = "utf-8"
-$overwrite = if ($NoOverwrite) { "0" } else { "1" }
-$converterScript = @'
-from __future__ import annotations
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-from pathlib import Path
-import sys
+& $python @cliArgs
+$exitCode = $LASTEXITCODE
 
-from h2h_converter.epub import convert_epub
-from h2h_converter.utagger import UTaggerHanjaConverter, UTaggerOptions
-
-
-output_dir = Path(sys.argv[1])
-raw_utagger_path = sys.argv[2]
-utagger_path = Path(raw_utagger_path) if raw_utagger_path else None
-overwrite = sys.argv[3] == "1"
-epubs = [Path(raw_path) for raw_path in sys.argv[4:]]
-
-with UTaggerHanjaConverter(UTaggerOptions(utagger3_path=utagger_path)) as converter:
-    for index, epub in enumerate(epubs, start=1):
-        output_path = output_dir / f"{epub.stem}.hanja-ruby.epub"
-        print(f"[{index}/{len(epubs)}] Converting {epub.name} -> {output_path}", flush=True)
-        stats = convert_epub(epub, output_path, converter, overwrite=overwrite)
-        print(
-            "  "
-            f"{stats.documents} document(s), "
-            f"{stats.text_nodes} text segment(s), "
-            f"{stats.ruby_nodes} ruby annotation(s)",
-            flush=True,
-        )
-        if stats.skipped_documents:
-            print(f"  preserved {stats.skipped_documents} document(s) unchanged", flush=True)
-        for warning in stats.warnings[:5]:
-            print(f"  warning: {warning}", flush=True)
-        if len(stats.warnings) > 5:
-            print(f"  warning: {len(stats.warnings) - 5} more warning(s) omitted", flush=True)
-'@
-
-& $python -c $converterScript $OutputDir $utaggerArg $overwrite @($epubs.FullName)
-if ($LASTEXITCODE -ne 0) {
-    throw "Sample conversion failed"
+# CLI exit codes: 0 ok, 2 usage, 3 input/output, 4 UTagger, 5 partial success.
+if ($exitCode -in 2, 3, 4) {
+    throw "Sample conversion failed (exit code $exitCode)"
+}
+if ($exitCode -eq 5) {
+    Write-Host "Finished with skipped files or warnings (exit code 5) - see the output above."
 }
 
-Write-Host "Done. Converted $($epubs.Count) EPUB file(s) into $OutputDir"
+Write-Host "Done. Converted EPUBs from $InputDir into $OutputDir"

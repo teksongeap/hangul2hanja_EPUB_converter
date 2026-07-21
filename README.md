@@ -188,9 +188,10 @@ To convert every sample EPUB under `sample_epubs/` into `data/`:
 .\convert-samples.ps1
 ```
 
-(This helper script is Windows-only; everywhere else the native batch mode does
-the same job: `h2h-convert run sample_epubs --output-dir data`.)
+(This helper script is Windows-only and is a thin wrapper around
+`python -m h2h_converter run`; everywhere else the native batch mode does the
+same job directly: `h2h-convert run sample_epubs --output-dir data`.)
 
-The script finds Python in this order: the `-PythonPath` parameter, the `H2H_PYTHON` environment variable, `.venv\Scripts\python.exe`, then `python` on PATH. It passes an explicit UTagger path only when you give it one with `-UTaggerPath` or when the repo-local `.utagger\v3_2109b` folder exists; otherwise the converter's normal resolution order applies.
+The script finds Python in this order: the `-PythonPath` parameter, the `H2H_PYTHON` environment variable, `.venv\Scripts\python.exe`, then `python` on PATH. It passes an explicit UTagger path only when you give it one with `-UTaggerPath` or when the repo-local `.utagger\v3_2109b` folder exists; otherwise the converter's normal resolution order applies. Exit code 5 from the CLI (skipped files / preserved documents) is reported as a warning, not a failure.
 
 The local folders `.utagger/`, `.codex-py-pkgs/`, `.codex-home/`, `.scratch/`, and UTagger check outputs are ignored because they are machine-local verification artifacts.
