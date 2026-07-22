@@ -160,6 +160,49 @@ input, existing output, unreadable EPUB, nothing converted), `4` UTagger
 problem, `5` partial success (converted, but some documents were preserved
 unchanged or some files were skipped/failed).
 
+## Troubleshooting
+
+**`doctor` says the UTagger 3 install location could not be resolved.**
+Run `h2h-convert setup`, or point at an existing install with `--utagger3-path`
+/ `UTAGGER3_PATH`. When resolution succeeds, `doctor` tells you which source
+supplied the path.
+
+**"UTagger library not found" or a missing `Hlxcfg.txt`.**
+The install is incomplete or corrupted. Re-run `h2h-convert setup` — it reuses
+what it can and re-downloads the rest.
+
+**`doctor` fails the 64-bit check.**
+UTagger ships 64-bit x86 libraries only. Install 64-bit CPython and recreate
+your virtual environment (on ARM64 Windows, use x64 Python under emulation).
+
+**"Output already exists".**
+Pass `--overwrite`. In batch mode existing outputs are skipped automatically,
+so re-running a batch resumes where it stopped.
+
+**"Preserved N document(s) unchanged" warnings.**
+Those spine documents are not well-formed XHTML/XML, so they were copied
+verbatim while everything else was converted normally. Use `--report FILE` for
+the full list, or `--strict` to abort on the first such document instead.
+
+**A large book takes minutes to convert.**
+UTagger morphologically analyzes every paragraph; a full novel can take
+several minutes. Per-document progress is shown while it works, and
+`--preview` lets you check annotation quality before committing to a whole book.
+
+**"Only one UTagger 3 instance can be loaded per process."**
+The native library allows a single instance; the CLI's batch mode therefore
+reuses one converter across all files. Separate `h2h-convert` processes each
+get their own instance (on Linux the dictionaries are shared via shared
+memory).
+
+**Korean text looks garbled in an old console.**
+The CLI writes UTF-8 when piped and uses the Unicode console API on a
+terminal; on legacy consoles use Windows Terminal or PowerShell 7.
+
+**macOS or ARM64.**
+UTagger has no macOS or ARM build. The practical route is a Linux `amd64`
+container (works on Apple Silicon via Rosetta).
+
 ## Pipeline
 
 1. Unpack the EPUB in memory.
@@ -194,4 +237,7 @@ same job directly: `h2h-convert run sample_epubs --output-dir data`.)
 
 The script finds Python in this order: the `-PythonPath` parameter, the `H2H_PYTHON` environment variable, `.venv\Scripts\python.exe`, then `python` on PATH. It passes an explicit UTagger path only when you give it one with `-UTaggerPath` or when the repo-local `.utagger\v3_2109b` folder exists; otherwise the converter's normal resolution order applies. Exit code 5 from the CLI (skipped files / preserved documents) is reported as a warning, not a failure.
 
-The local folders `.utagger/`, `.codex-py-pkgs/`, `.codex-home/`, `.scratch/`, and UTagger check outputs are ignored because they are machine-local verification artifacts.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing notes,
+live-verification recipes, and the list of machine-local artifacts that are
+intentionally git-ignored. Release history lives in
+[CHANGELOG.md](CHANGELOG.md).

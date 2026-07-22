@@ -209,6 +209,17 @@ h2h-convert run <input> [output] [opts]   # conversion (see Phase 3)
 
 ### Phase 5 — Documentation rewrite
 
+> **Status: landed 2026-07-21.** `CHANGELOG.md` opened at 0.2.0 covering
+> Phases 1–4 and Linux support; version bumped in `pyproject.toml` and
+> `h2h_converter/__init__.py` (`h2h-convert --version` reports 0.2.0). New
+> README **Troubleshooting** section documents the real failure modes observed
+> during development: unresolved/missing UTagger, 32-bit Python, existing
+> outputs, preserved-documents semantics, long-book conversion times, the
+> one-instance-per-process rule, legacy console encoding, and macOS/ARM64.
+> Machine-local artifacts and dev-verification recipes moved to
+> `CONTRIBUTING.md`; the README points to it. The bare positional CLI form was
+> kept working and marked deprecated in the changelog.
+
 1. **README, fresh-machine first:** Requirements (Windows x64, Python ≥ 3.10,
    ~200 MB for UTagger data) → Install (venv, `pip install -e ".[setup]"`,
    `h2h-convert setup`, `h2h-convert doctor`) → Convert your first book

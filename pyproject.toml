@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "h2h-converter"
-version = "0.1.0"
+version = "0.2.0"
 description = "Convert Korean EPUBs into EPUBs with Hanja ruby annotations using UTagger."
 readme = "README.md"
 requires-python = ">=3.10"
